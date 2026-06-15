@@ -282,10 +282,12 @@ export async function scan(
     if (config.techniques.pathConfusion) {
       result.techniquesRun.push("Path confusion");
       for (const delimiter of config.delimiters) {
-        const makePath = (suffix: string) =>
-          delimiter.value === "/"
-            ? `${stripTrailingSlash(basePath)}/${suffix}`
-            : `${basePath}${delimiter.value}${suffix}`;
+        const makePath = (suffix: string) => {
+          const root = delimiter.value.startsWith("/")
+            ? stripTrailingSlash(basePath)
+            : basePath;
+          return `${root}${delimiter.value}${suffix}`;
+        };
 
         // Cheap gate: if appending the marker changes the page, the origin is
         // not ignoring the suffix for this delimiter — skip its extensions.
@@ -352,11 +354,11 @@ export async function scan(
       const rest = basePath.replace(/^\/+/, "");
       for (const dir of config.staticDirectories) {
         progress(`Static directory: /${dir}/`);
-        for (const traversal of ["..%2f", "%2e%2e%2f"]) {
+        for (const traversal of config.staticTraversals) {
           const finding = await evaluate(
             `/${dir}/${traversal}${rest}`,
             "Static directory",
-            `/${dir}/`,
+            `/${dir}/ ${traversal}`,
             "",
           );
           if (finding !== undefined) result.findings.push(finding);

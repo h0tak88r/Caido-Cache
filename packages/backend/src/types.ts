@@ -21,6 +21,7 @@ export type ScanConfig = {
   delimiters: Delimiter[];
   techniques: Techniques;
   staticDirectories: string[];
+  staticTraversals: string[];
   staticFilenames: string[];
   jaroThreshold: number;
   levenThreshold: number;
@@ -96,6 +97,20 @@ export const DEFAULT_CONFIG: ScanConfig = {
     { value: "%2e", label: "Encoded dot (%2e)" },
     { value: "%20", label: "Space (%20)" },
     { value: "%26", label: "Ampersand (%26)" },
+    { value: "//", label: "Double slash (//)" },
+  ],
+  // Path-normalization payloads for the static-directory technique. The cache
+  // keys the URL under the static prefix; the origin resolves the traversal
+  // back to the sensitive page. Includes raw, encoded, double-encoded, and
+  // semicolon (Tomcat-style) forms.
+  staticTraversals: [
+    "..%2f",
+    "%2e%2e%2f",
+    "../",
+    "%2e%2e/",
+    "%252e%252e%252f",
+    "..%2f..%2f",
+    "..;/",
   ],
   techniques: {
     pathConfusion: true,

@@ -26,6 +26,7 @@ const CATALOG: Delimiter[] = [
   { value: "%2e", label: "Encoded dot (%2e)" },
   { value: "%20", label: "Space (%20)" },
   { value: "%26", label: "Ampersand (%26)" },
+  { value: "//", label: "Double slash (//)" },
 ];
 
 const TECHNIQUES: { key: keyof ScanConfig["techniques"]; label: string }[] = [
@@ -68,6 +69,14 @@ const staticDirectories = computed<string>({
   set: (value) => {
     if (form.value !== undefined)
       form.value.staticDirectories = parseList(value);
+  },
+});
+
+const staticTraversals = computed<string>({
+  get: () => form.value?.staticTraversals.join(", ") ?? "",
+  set: (value) => {
+    if (form.value !== undefined)
+      form.value.staticTraversals = parseList(value);
   },
 });
 
@@ -184,6 +193,16 @@ async function onReset(): Promise<void> {
           Cached path prefixes for the <code>/static/..%2fpath</code> technique.
         </p>
         <InputText v-model="staticDirectories" class="w-full" />
+      </div>
+
+      <div>
+        <label class="block text-sm font-semibold mb-1">
+          Static-directory traversals
+        </label>
+        <p class="text-xs text-surface-400 mb-1">
+          Normalization payloads (raw, encoded, double-encoded, semicolon).
+        </p>
+        <InputText v-model="staticTraversals" class="w-full" />
       </div>
 
       <div>
