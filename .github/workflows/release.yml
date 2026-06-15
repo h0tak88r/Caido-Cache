@@ -33,6 +33,12 @@ jobs:
           version: ${{ env.PNPM_VERSION }}
           run_install: true
 
+      - name: Typecheck, lint, knip
+        run: |
+          pnpm typecheck
+          pnpm lint
+          pnpm knip
+
       - name: Build package
         run: pnpm build
 

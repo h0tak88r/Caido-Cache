@@ -64,11 +64,19 @@ export function registerEvents(sdk: FrontendSDK): void {
   });
   sdk.backend.onEvent("wcd:scan-finished", (data) => {
     upsertResult(data.result);
-    pushLog(
-      data.result.vulnerable
-        ? `✔ Vulnerable: ${data.result.findings.length} cacheable URL(s) on ${data.result.host}${data.result.path}`
-        : `– Not vulnerable: ${data.result.host}${data.result.path}`,
-    );
+    const firm = data.result.findings.filter(
+      (f) => f.confidence === "firm",
+    ).length;
+    const where = `${data.result.host}${data.result.path}`;
+    if (data.result.vulnerable) {
+      pushLog(`✔ Vulnerable: ${firm} cacheable URL(s) on ${where}`);
+    } else if (data.result.findings.length > 0) {
+      pushLog(
+        `~ Tentative: ${data.result.findings.length} candidate(s) need review on ${where}`,
+      );
+    } else {
+      pushLog(`– Not vulnerable: ${where}`);
+    }
   });
   sdk.backend.onEvent("wcd:scan-failed", (data) => {
     pushLog(`✖ Scan failed: ${data.error}`);
@@ -90,13 +98,20 @@ export async function runScan(
       return;
     }
     upsertResult(result.value);
-    if (result.value.vulnerable) {
+    const scan = result.value;
+    const firm = scan.findings.filter((f) => f.confidence === "firm").length;
+    if (scan.vulnerable) {
       sdk.window.showToast(
-        `Web Cache Deception confirmed — ${result.value.findings.length} cacheable URL(s)`,
+        `Web Cache Deception confirmed — ${firm} cacheable URL(s)`,
+        { variant: "warning" },
+      );
+    } else if (scan.findings.length > 0) {
+      sdk.window.showToast(
+        `${scan.findings.length} tentative candidate(s) — manual review needed`,
         { variant: "warning" },
       );
     } else {
-      sdk.window.showToast(`Not vulnerable — ${result.value.reason}`, {
+      sdk.window.showToast(`Not vulnerable — ${scan.reason}`, {
         variant: "info",
       });
     }

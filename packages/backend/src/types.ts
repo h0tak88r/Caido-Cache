@@ -27,6 +27,7 @@ export type ScanConfig = {
   levenThreshold: number;
   maxCompareLength: number;
   delayMs: number;
+  maxRequests: number;
   authHeaders: string[];
   saveRequests: boolean;
 };
@@ -36,6 +37,14 @@ export type VariantFinding = {
   vector: string;
   extension: string;
   exploitUrl: string;
+  // "firm" = caching is corroborated by a cache-HIT header, an explicitly
+  // cacheable response (Cache-Control public/max-age), or a cache-busted
+  // anonymous request returning the public page while the plain one leaks.
+  // "tentative" = the anonymous request returned authenticated content, but
+  // caching could not be confirmed — it may be a server-side access-control
+  // flaw, or a cache that ignores the query string and sends no cache headers
+  // (the classic extension-keyed cache). Verify these manually.
+  confidence: "firm" | "tentative";
   cacheHit: boolean;
   cacheHeaders: string[];
   similarity: number;
@@ -139,6 +148,7 @@ export const DEFAULT_CONFIG: ScanConfig = {
   levenThreshold: 200,
   maxCompareLength: 15000,
   delayMs: 150,
+  maxRequests: 2000,
   authHeaders: ["Cookie", "Authorization", "X-Api-Key", "X-Auth-Token"],
   saveRequests: true,
 };

@@ -30,6 +30,23 @@ function copy(text: string): void {
 function fmtTime(ms: number): string {
   return new Date(ms).toLocaleTimeString();
 }
+
+type Sev = "danger" | "warn" | "secondary";
+
+function rowSeverity(r: ScanResult): Sev {
+  if (r.vulnerable) return "danger";
+  return r.findings.length > 0 ? "warn" : "secondary";
+}
+
+function rowLabel(r: ScanResult): string {
+  if (r.vulnerable) return "VULN";
+  return r.findings.length > 0 ? "review" : "ok";
+}
+
+function statusLabel(r: ScanResult): string {
+  if (r.vulnerable) return "VULNERABLE";
+  return r.findings.length > 0 ? "TENTATIVE — REVIEW" : "NOT VULNERABLE";
+}
 </script>
 
 <template>
@@ -60,10 +77,7 @@ function fmtTime(ms: number): string {
 
           <Column header="" style="width: 2.5rem">
             <template #body="{ data }">
-              <Tag
-                :value="data.vulnerable ? 'VULN' : 'ok'"
-                :severity="data.vulnerable ? 'danger' : 'secondary'"
-              />
+              <Tag :value="rowLabel(data)" :severity="rowSeverity(data)" />
             </template>
           </Column>
           <Column field="host" header="Host" />
@@ -103,8 +117,8 @@ function fmtTime(ms: number): string {
         <div v-else class="flex flex-col gap-3">
           <div class="flex items-center gap-2">
             <Tag
-              :value="current.vulnerable ? 'VULNERABLE' : 'NOT VULNERABLE'"
-              :severity="current.vulnerable ? 'danger' : 'secondary'"
+              :value="statusLabel(current)"
+              :severity="rowSeverity(current)"
             />
             <Tag v-if="current.vulnerable" value="High" severity="warn" />
             <span class="text-xs text-surface-400">
@@ -130,6 +144,14 @@ function fmtTime(ms: number): string {
           <div v-if="current.findings.length > 0">
             <div class="text-sm font-semibold mb-1">Cacheable exploit URLs</div>
             <DataTable :value="current.findings" striped-rows class="text-sm">
+              <Column header="Conf." style="width: 5rem">
+                <template #body="{ data }">
+                  <Tag
+                    :value="data.confidence === 'firm' ? 'firm' : 'tentative'"
+                    :severity="data.confidence === 'firm' ? 'danger' : 'warn'"
+                  />
+                </template>
+              </Column>
               <Column field="technique" header="Technique" />
               <Column field="vector" header="Vector" />
               <Column field="extension" header="Ext" style="width: 3.5rem" />

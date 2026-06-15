@@ -50,17 +50,26 @@ request/response evidence.
 ### Detection model (vs. the original Burp extension)
 
 - Two-tier, configurable **extension list** (same idea as the original).
-- Stronger confirmation logic: a finding requires the unauthenticated fetch to
-  match the primed authenticated content **and** differ from a normal
-  unauthenticated response (prime ≈ fetch ≈ auth, fetch ≉ unauth) — cuts false
-  positives the original would raise.
+- **Byte-exact probes.** Malformed paths (`%2f`, `%00`, `%0a`, `%252e`, `\`) are
+  spliced into the raw request line, so the cache/origin see the exact bytes
+  rather than a re-encoded path.
+- **Caching is proven, not assumed.** A leak candidate (unauthenticated fetch ≈
+  primed authenticated content, ≉ normal unauthenticated response) is only
+  reported as **firm** when caching is corroborated by a cache-HIT header
+  (`X-Cache`, `CF-Cache-Status`, `Age`), an explicitly cacheable response
+  (`Cache-Control: public/max-age`), or a **cache-buster negative control** (an
+  anonymous request with an extra query param returns the public page while the
+  plain URL leaks). This distinguishes real WCD from plain broken access control.
+  - Candidates without caching corroboration are surfaced as **tentative —
+    review** (e.g. a cache that ignores the query string *and* sends no cache
+    headers cannot be auto-confirmed remotely; verify manually). Only **firm**
+    results create a Caido Finding.
 - Faithful similarity model: Jaro-Winkler ≥ 0.8 **OR** Levenshtein ≤ 200, with
   tunable thresholds and input caps for performance.
-- Cache-header corroboration (`X-Cache`, `CF-Cache-Status`, `Age`, …).
 
-All probes are forced to **GET** and a configurable inter-request delay keeps the
-scan well-behaved. Each technique can be disabled in Settings to limit request
-volume.
+All probes are forced to **GET**; a failed/timed-out probe is skipped (it never
+aborts the scan), a configurable inter-request delay and a hard request budget
+keep the scan well-behaved, and each technique can be disabled in Settings.
 
 ## Settings
 

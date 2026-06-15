@@ -259,6 +259,17 @@ async function onReset(): Promise<void> {
             class="w-full"
           />
         </div>
+        <div>
+          <label class="block text-sm font-semibold mb-1">
+            Max requests per scan
+          </label>
+          <InputNumber
+            v-model="form.maxRequests"
+            :min="50"
+            :step="100"
+            class="w-full"
+          />
+        </div>
       </div>
 
       <div>
