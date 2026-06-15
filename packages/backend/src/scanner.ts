@@ -1,10 +1,5 @@
 import type { SDK } from "caido:plugin";
-import {
-  Body,
-  type Request,
-  type RequestSpec,
-  type Response,
-} from "caido:utils";
+import { Body, type RequestSpec, type Response } from "caido:utils";
 
 import { jaroWinkler, similar } from "./similarity";
 import {
@@ -24,6 +19,16 @@ const Events = {
 
 const CONTENT_HEADERS = ["Content-Length", "Content-Type", "Transfer-Encoding"];
 
+const HIT_HEADERS = new Set([
+  "x-cache",
+  "x-cache-status",
+  "cf-cache-status",
+  "x-proxy-cache",
+  "cache-status",
+  "x-drupal-cache",
+  "x-varnish-cache",
+]);
+
 const sleep = (ms: number): Promise<void> =>
   // eslint-disable-next-line compat/compat -- backend runs in QuickJS, not a browser
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -40,48 +45,9 @@ function bodyText(response: Response | undefined): string {
   return body === undefined ? "" : body.toText();
 }
 
-function joinPath(path: string, delimiter: string, suffix: string): string {
-  if (delimiter === "/") {
-    const base = path.endsWith("/") ? path.slice(0, -1) : path;
-    return `${base}/${suffix}`;
-  }
-  return `${path}${delimiter}${suffix}`;
+function stripTrailingSlash(path: string): string {
+  return path.endsWith("/") && path.length > 1 ? path.slice(0, -1) : path;
 }
-
-// Builds a GET probe based on the original request, with the marker (and
-// optional extension) appended to the path using the given delimiter. The
-// original query string and headers are preserved so the application still
-// renders the same authenticated page; the body is dropped because Web Cache
-// Deception is a GET-cacheability issue.
-function buildVariant(
-  base: Request,
-  delimiter: string,
-  marker: string,
-  extension: string | undefined,
-): RequestSpec {
-  const spec = base.toSpec();
-  spec.setMethod("GET");
-  spec.setBody(new Body(""), { updateContentLength: false });
-  for (const header of CONTENT_HEADERS) spec.removeHeader(header);
-
-  const suffix = extension === undefined ? marker : `${marker}.${extension}`;
-  spec.setPath(joinPath(base.getPath(), delimiter, suffix));
-  return spec;
-}
-
-function stripAuth(spec: RequestSpec, authHeaders: string[]): void {
-  for (const header of authHeaders) spec.removeHeader(header);
-}
-
-const HIT_HEADERS = new Set([
-  "x-cache",
-  "x-cache-status",
-  "cf-cache-status",
-  "x-proxy-cache",
-  "cache-status",
-  "x-drupal-cache",
-  "x-varnish-cache",
-]);
 
 function cacheEvidence(response: Response): {
   hit: boolean;
@@ -123,7 +89,7 @@ function buildDescription(result: ScanResult): string {
         ? ` — cache headers: ${finding.cacheHeaders.join("; ")}`
         : "";
     lines.push(
-      `- \`${finding.exploitUrl}\` (${finding.delimiterLabel}, similarity ${finding.similarity.toFixed(2)})${evidence}`,
+      `- [${finding.technique} · ${finding.vector}] \`${finding.exploitUrl}\` (similarity ${finding.similarity.toFixed(2)})${evidence}`,
     );
   }
   lines.push("");
@@ -132,7 +98,7 @@ function buildDescription(result: ScanResult): string {
   );
   lines.push("");
   lines.push(
-    "**Remediation:** caches should honor `Cache-Control` headers instead of caching by file extension, and the application should reject or normalize URLs with superfluous path segments or extensions.",
+    "**Remediation:** caches should honor `Cache-Control` headers instead of caching by file extension or path prefix, and the application should reject or normalize URLs with superfluous path segments, delimiters, or extensions.",
   );
   return lines.join("\n");
 }
@@ -152,6 +118,7 @@ export async function scan(
     return { kind: "Error", error: `Request ${requestId} not found` };
   }
   const base = stored.request;
+  const basePath = base.getPath();
 
   // The bare backend `SDK` type does not carry our event map, so `api.send`
   // would reject our event names. Funnel emits through a single typed wrapper.
@@ -169,6 +136,21 @@ export async function scan(
     return payload.response;
   };
 
+  // Build a GET probe at `path`, preserving the original headers/query so the
+  // app still renders the same authenticated page. The body is dropped because
+  // Web Cache Deception is a GET-cacheability issue.
+  const buildProbe = (path: string, unauthenticated: boolean): RequestSpec => {
+    const spec = base.toSpec();
+    spec.setMethod("GET");
+    spec.setBody(new Body(""), { updateContentLength: false });
+    for (const header of CONTENT_HEADERS) spec.removeHeader(header);
+    spec.setPath(path);
+    if (unauthenticated) {
+      for (const header of config.authHeaders) spec.removeHeader(header);
+    }
+    return spec;
+  };
+
   const result: ScanResult = {
     id: scanId,
     requestId,
@@ -176,14 +158,14 @@ export async function scan(
     host: base.getHost(),
     port: base.getPort(),
     tls: base.getTls(),
-    path: base.getPath(),
+    path: basePath,
     method: base.getMethod(),
     scannedAt: Date.now(),
     authSensitive: false,
     vulnerable: false,
     reason: "",
     requestsSent: 0,
-    delimitersTested: [],
+    techniquesRun: [],
     findings: [],
   };
 
@@ -210,15 +192,10 @@ export async function scan(
     // 1. Authenticated vs unauthenticated baseline. If they look the same, the
     //    page is not auth-sensitive and caching it leaks nothing of value.
     progress("Fetching authenticated baseline");
-    const authSpec = buildVariant(base, "/", marker, undefined);
-    authSpec.setPath(base.getPath());
-    const authBody = bodyText(await send(authSpec));
+    const authBody = bodyText(await send(buildProbe(basePath, false)));
 
     progress("Fetching unauthenticated baseline");
-    const unauthSpec = buildVariant(base, "/", marker, undefined);
-    unauthSpec.setPath(base.getPath());
-    stripAuth(unauthSpec, config.authHeaders);
-    const unauthBody = bodyText(await send(unauthSpec));
+    const unauthBody = bodyText(await send(buildProbe(basePath, true)));
 
     if (isSimilar(authBody, unauthBody)) {
       result.requestsSent = sent;
@@ -229,76 +206,161 @@ export async function scan(
     }
     result.authSensitive = true;
 
-    const testExtensions = async (
-      delimiter: string,
-      delimiterLabel: string,
-      extensions: string[],
-    ): Promise<VariantFinding[]> => {
-      const out: VariantFinding[] = [];
-      for (const extension of extensions) {
-        progress(`Testing ${delimiter}${marker}.${extension}`);
-        const primeSpec = buildVariant(base, delimiter, marker, extension);
-        const primeResponse = await send(primeSpec);
-        const primeBody = bodyText(primeResponse);
+    // Unified leak check: prime the cache authenticated, then fetch the exact
+    // same URL unauthenticated. A leak requires the origin to serve the
+    // sensitive page for this URL (prime ≈ auth) AND the unauthenticated fetch
+    // to return that primed content (fetch ≈ prime ≈ auth) while differing from
+    // a normal unauthenticated response (fetch ≉ unauth).
+    const evaluate = async (
+      path: string,
+      technique: string,
+      vector: string,
+      extension: string,
+    ): Promise<VariantFinding | undefined> => {
+      const primeResponse = await send(buildProbe(path, false));
+      const primeBody = bodyText(primeResponse);
+      if (!isSimilar(authBody, primeBody)) return undefined;
 
-        const fetchSpec = buildVariant(base, delimiter, marker, extension);
-        stripAuth(fetchSpec, config.authHeaders);
-        const fetchResponse = await send(fetchSpec);
-        if (fetchResponse === undefined) continue;
-        const fetchBody = bodyText(fetchResponse);
+      const fetchResponse = await send(buildProbe(path, true));
+      if (fetchResponse === undefined) return undefined;
+      const fetchBody = bodyText(fetchResponse);
 
-        // Cached & leaking: the unauthenticated fetch returned the primed
-        // authenticated content AND differs from a normal unauthenticated
-        // response. Either condition alone is not enough.
-        const matchesPrime = isSimilar(primeBody, fetchBody);
-        const matchesAuth = isSimilar(authBody, fetchBody);
-        const matchesUnauth = isSimilar(unauthBody, fetchBody);
-        if (!(matchesPrime && matchesAuth && !matchesUnauth)) continue;
+      const leaks =
+        isSimilar(primeBody, fetchBody) &&
+        isSimilar(authBody, fetchBody) &&
+        !isSimilar(unauthBody, fetchBody);
+      if (!leaks) return undefined;
 
-        const evidence = cacheEvidence(fetchResponse);
-        out.push({
-          delimiter,
-          delimiterLabel,
-          extension,
-          exploitUrl: fetchSpec.getUrl(),
-          cacheHit: evidence.hit,
-          cacheHeaders: evidence.headers,
-          similarity: jaroWinkler(
-            primeBody.slice(0, config.maxCompareLength),
-            fetchBody.slice(0, config.maxCompareLength),
-          ),
-          primeRequestId: primeResponse?.getId() ?? "0",
-          fetchRequestId: fetchResponse.getId(),
-        });
-      }
-      return out;
+      const evidence = cacheEvidence(fetchResponse);
+      return {
+        technique,
+        vector,
+        extension,
+        exploitUrl: buildProbe(path, true).getUrl(),
+        cacheHit: evidence.hit,
+        cacheHeaders: evidence.headers,
+        similarity: jaroWinkler(
+          primeBody.slice(0, config.maxCompareLength),
+          fetchBody.slice(0, config.maxCompareLength),
+        ),
+        primeRequestId: primeResponse?.getId() ?? "0",
+        fetchRequestId: fetchResponse.getId(),
+      };
     };
 
-    for (const delimiter of config.delimiters) {
-      result.delimitersTested.push(delimiter.value);
+    // Two-tier extension probing: test a few common extensions; only if one is
+    // cached do we test the larger list (mirrors the original Burp extension).
+    const probeExtensions = async (
+      makePath: (suffix: string) => string,
+      technique: string,
+      vector: string,
+    ): Promise<void> => {
+      const initial: VariantFinding[] = [];
+      for (const ext of config.initialExtensions) {
+        const finding = await evaluate(
+          makePath(`${marker}.${ext}`),
+          technique,
+          vector,
+          ext,
+        );
+        if (finding !== undefined) initial.push(finding);
+      }
+      result.findings.push(...initial);
+      if (initial.length === 0) return;
+      for (const ext of config.extraExtensions) {
+        const finding = await evaluate(
+          makePath(`${marker}.${ext}`),
+          technique,
+          vector,
+          ext,
+        );
+        if (finding !== undefined) result.findings.push(finding);
+      }
+    };
 
-      // 2. Path-append tolerance: does the app ignore the appended segment and
-      //    still return the same authenticated page?
-      progress(`Checking append tolerance for "${delimiter.label}"`);
-      const tolSpec = buildVariant(base, delimiter.value, marker, undefined);
-      const tolBody = bodyText(await send(tolSpec));
-      if (!isSimilar(authBody, tolBody)) continue;
+    // Technique 1 — path confusion: /path<delimiter>marker.ext
+    if (config.techniques.pathConfusion) {
+      result.techniquesRun.push("Path confusion");
+      for (const delimiter of config.delimiters) {
+        const makePath = (suffix: string) =>
+          delimiter.value === "/"
+            ? `${stripTrailingSlash(basePath)}/${suffix}`
+            : `${basePath}${delimiter.value}${suffix}`;
 
-      // 3. Per-extension cache test, mirroring the original two-tier approach:
-      //    probe a few common extensions first, expand only if one is cached.
-      const initial = await testExtensions(
-        delimiter.value,
-        delimiter.label,
-        config.initialExtensions,
-      );
+        // Cheap gate: if appending the marker changes the page, the origin is
+        // not ignoring the suffix for this delimiter — skip its extensions.
+        progress(`Path confusion: testing "${delimiter.label}"`);
+        const tolBody = bodyText(
+          await send(buildProbe(makePath(marker), false)),
+        );
+        if (!isSimilar(authBody, tolBody)) continue;
+
+        await probeExtensions(makePath, "Path confusion", delimiter.label);
+      }
+    }
+
+    // Technique 2 — direct extension: /path.ext (no delimiter, no marker)
+    if (config.techniques.directExtension) {
+      result.techniquesRun.push("Direct extension");
+      progress("Testing direct extension (/path.ext)");
+      const root = stripTrailingSlash(basePath);
+      const initial: VariantFinding[] = [];
+      for (const ext of config.initialExtensions) {
+        const finding = await evaluate(
+          `${root}.${ext}`,
+          "Direct extension",
+          "no delimiter",
+          ext,
+        );
+        if (finding !== undefined) initial.push(finding);
+      }
       result.findings.push(...initial);
       if (initial.length > 0) {
-        const extra = await testExtensions(
-          delimiter.value,
-          delimiter.label,
-          config.extraExtensions,
+        for (const ext of config.extraExtensions) {
+          const finding = await evaluate(
+            `${root}.${ext}`,
+            "Direct extension",
+            "no delimiter",
+            ext,
+          );
+          if (finding !== undefined) result.findings.push(finding);
+        }
+      }
+    }
+
+    // Technique 3 — static filename: /path/<cached-filename>
+    if (config.techniques.staticFilename) {
+      result.techniquesRun.push("Static filename");
+      const root = stripTrailingSlash(basePath);
+      for (const filename of config.staticFilenames) {
+        progress(`Static filename: ${filename}`);
+        const finding = await evaluate(
+          `${root}/${filename}`,
+          "Static filename",
+          filename,
+          filename.split(".").pop() ?? "",
         );
-        result.findings.push(...extra);
+        if (finding !== undefined) result.findings.push(finding);
+      }
+    }
+
+    // Technique 4 — static directory: /<dir>/..%2f<path> (normalization gap:
+    // the cache keys it under the cached directory, the origin resolves the
+    // traversal back to the sensitive page).
+    if (config.techniques.staticDirectory) {
+      result.techniquesRun.push("Static directory");
+      const rest = basePath.replace(/^\/+/, "");
+      for (const dir of config.staticDirectories) {
+        progress(`Static directory: /${dir}/`);
+        for (const traversal of ["..%2f", "%2e%2e%2f"]) {
+          const finding = await evaluate(
+            `/${dir}/${traversal}${rest}`,
+            "Static directory",
+            `/${dir}/`,
+            "",
+          );
+          if (finding !== undefined) result.findings.push(finding);
+        }
       }
     }
 
@@ -306,7 +368,7 @@ export async function scan(
     result.vulnerable = result.findings.length > 0;
     result.reason = result.vulnerable
       ? `Confirmed ${result.findings.length} cacheable authenticated URL(s).`
-      : "No extension/delimiter combination caused authenticated content to be cached for unauthenticated users.";
+      : "No technique caused authenticated content to be cached for unauthenticated users.";
 
     if (result.vulnerable) {
       await sdk.findings.create({

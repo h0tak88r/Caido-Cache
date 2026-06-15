@@ -7,11 +7,21 @@ export type Delimiter = {
   label: string;
 };
 
+type Techniques = {
+  pathConfusion: boolean;
+  directExtension: boolean;
+  staticDirectory: boolean;
+  staticFilename: boolean;
+};
+
 export type ScanConfig = {
   marker: string;
   initialExtensions: string[];
   extraExtensions: string[];
   delimiters: Delimiter[];
+  techniques: Techniques;
+  staticDirectories: string[];
+  staticFilenames: string[];
   jaroThreshold: number;
   levenThreshold: number;
   maxCompareLength: number;
@@ -21,8 +31,8 @@ export type ScanConfig = {
 };
 
 export type VariantFinding = {
-  delimiter: string;
-  delimiterLabel: string;
+  technique: string;
+  vector: string;
   extension: string;
   exploitUrl: string;
   cacheHit: boolean;
@@ -46,7 +56,7 @@ export type ScanResult = {
   vulnerable: boolean;
   reason: string;
   requestsSent: number;
-  delimitersTested: string[];
+  techniquesRun: string[];
   findings: VariantFinding[];
 };
 
@@ -67,7 +77,10 @@ export const DEFAULT_CONFIG: ScanConfig = {
     "woff",
     "woff2",
     "json",
+    "avif",
   ],
+  // Origin treats the marker as part of the resource; the cache may stop
+  // parsing at one of these delimiters and key the response as a static file.
   delimiters: [
     { value: "/", label: "Path segment (/)" },
     { value: ";", label: "Matrix param (;)" },
@@ -75,6 +88,37 @@ export const DEFAULT_CONFIG: ScanConfig = {
     { value: "%3f", label: "Encoded question mark (%3f)" },
     { value: "%23", label: "Encoded hash (%23)" },
     { value: "\\", label: "Backslash (\\)" },
+    { value: "%00", label: "Null byte (%00)" },
+    { value: "%0a", label: "Newline (%0a)" },
+    { value: "%0d", label: "Carriage return (%0d)" },
+    { value: "%09", label: "Tab (%09)" },
+    { value: "%3b", label: "Encoded semicolon (%3b)" },
+    { value: "%2e", label: "Encoded dot (%2e)" },
+    { value: "%20", label: "Space (%20)" },
+    { value: "%26", label: "Ampersand (%26)" },
+  ],
+  techniques: {
+    pathConfusion: true,
+    directExtension: true,
+    staticDirectory: true,
+    staticFilename: true,
+  },
+  staticDirectories: [
+    "static",
+    "assets",
+    "resources",
+    "media",
+    "content",
+    "public",
+    "cdn",
+  ],
+  staticFilenames: [
+    "robots.txt",
+    "index.html",
+    "sw.js",
+    "favicon.ico",
+    "crossdomain.xml",
+    "sitemap.xml",
   ],
   jaroThreshold: 0.8,
   levenThreshold: 200,

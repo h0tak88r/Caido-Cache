@@ -20,6 +20,19 @@ const CATALOG: Delimiter[] = [
   { value: "\\", label: "Backslash (\\)" },
   { value: "%00", label: "Null byte (%00)" },
   { value: "%0a", label: "Newline (%0a)" },
+  { value: "%0d", label: "Carriage return (%0d)" },
+  { value: "%09", label: "Tab (%09)" },
+  { value: "%3b", label: "Encoded semicolon (%3b)" },
+  { value: "%2e", label: "Encoded dot (%2e)" },
+  { value: "%20", label: "Space (%20)" },
+  { value: "%26", label: "Ampersand (%26)" },
+];
+
+const TECHNIQUES: { key: keyof ScanConfig["techniques"]; label: string }[] = [
+  { key: "pathConfusion", label: "Path confusion (/path;marker.css)" },
+  { key: "directExtension", label: "Direct extension (/path.css)" },
+  { key: "staticDirectory", label: "Static directory (/static/..%2fpath)" },
+  { key: "staticFilename", label: "Static filename (/path/robots.txt)" },
 ];
 
 const form = ref<ScanConfig | undefined>(undefined);
@@ -47,6 +60,21 @@ const authHeaders = computed<string>({
   get: () => form.value?.authHeaders.join(", ") ?? "",
   set: (value) => {
     if (form.value !== undefined) form.value.authHeaders = parseList(value);
+  },
+});
+
+const staticDirectories = computed<string>({
+  get: () => form.value?.staticDirectories.join(", ") ?? "",
+  set: (value) => {
+    if (form.value !== undefined)
+      form.value.staticDirectories = parseList(value);
+  },
+});
+
+const staticFilenames = computed<string>({
+  get: () => form.value?.staticFilenames.join(", ") ?? "",
+  set: (value) => {
+    if (form.value !== undefined) form.value.staticFilenames = parseList(value);
   },
 });
 
@@ -84,6 +112,29 @@ async function onReset(): Promise<void> {
 <template>
   <div v-if="form !== undefined" class="h-full overflow-auto">
     <div class="flex flex-col gap-4 max-w-2xl">
+      <div>
+        <label class="block text-sm font-semibold mb-1">Techniques</label>
+        <p class="text-xs text-surface-400 mb-2">
+          Which Web Cache Deception techniques to run.
+        </p>
+        <div class="grid grid-cols-2 gap-2">
+          <div
+            v-for="technique in TECHNIQUES"
+            :key="technique.key"
+            class="flex items-center gap-2"
+          >
+            <Checkbox
+              v-model="form.techniques[technique.key]"
+              binary
+              :input-id="`tech-${technique.key}`"
+            />
+            <label :for="`tech-${technique.key}`" class="text-sm">
+              {{ technique.label }}
+            </label>
+          </div>
+        </div>
+      </div>
+
       <div>
         <label class="block text-sm font-semibold mb-1">
           Initial extensions
@@ -123,6 +174,26 @@ async function onReset(): Promise<void> {
             </label>
           </div>
         </div>
+      </div>
+
+      <div>
+        <label class="block text-sm font-semibold mb-1">
+          Static directories
+        </label>
+        <p class="text-xs text-surface-400 mb-1">
+          Cached path prefixes for the <code>/static/..%2fpath</code> technique.
+        </p>
+        <InputText v-model="staticDirectories" class="w-full" />
+      </div>
+
+      <div>
+        <label class="block text-sm font-semibold mb-1">
+          Static filenames
+        </label>
+        <p class="text-xs text-surface-400 mb-1">
+          Cached filenames appended as <code>/path/&lt;name&gt;</code>.
+        </p>
+        <InputText v-model="staticFilenames" class="w-full" />
       </div>
 
       <div class="grid grid-cols-2 gap-4">

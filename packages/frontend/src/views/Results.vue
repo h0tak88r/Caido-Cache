@@ -130,8 +130,9 @@ function fmtTime(ms: number): string {
           <div v-if="current.findings.length > 0">
             <div class="text-sm font-semibold mb-1">Cacheable exploit URLs</div>
             <DataTable :value="current.findings" striped-rows class="text-sm">
-              <Column field="extension" header="Ext" style="width: 4rem" />
-              <Column field="delimiterLabel" header="Delimiter" />
+              <Column field="technique" header="Technique" />
+              <Column field="vector" header="Vector" />
+              <Column field="extension" header="Ext" style="width: 3.5rem" />
               <Column header="Exploit URL">
                 <template #body="{ data }">
                   <div class="flex items-center gap-1">

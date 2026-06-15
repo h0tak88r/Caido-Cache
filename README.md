@@ -31,25 +31,44 @@ Confirmed results create a Caido **Finding** (`Web Cache Deception`, High) listi
 the working exploit URLs, and appear in the plugin's **Results** page with the
 request/response evidence.
 
-### Modernization over the original
+### Techniques (all toggleable)
 
-- Multiple path-confusion **delimiters** (`/`, `;`, `%2f`, `%3f`, `%23`, `\`, and
-  optional `%00` / `%0a`), not just `/`.
-- Configurable **extension list** (two-tier, like the original).
-- Stronger confirmation logic (prime-vs-fetch-vs-unauth comparison) to cut false
-  positives, plus cache-header corroboration.
+| Technique | Probe | Example |
+|---|---|---|
+| **Path confusion** | append `<delimiter>marker.<ext>` | `/account;wcd123.css` |
+| **Direct extension** | append `.<ext>` to the resource | `/account.css` |
+| **Static directory** | traversal back through a cached prefix | `/static/..%2faccount` |
+| **Static filename** | append a cached filename | `/account/robots.txt` |
+
+**Delimiters tested by default:** `/`, `;`, `%2f`, `%3f`, `%23`, `\`, `%00`, `%0a`,
+`%0d`, `%09`, `%3b`, `%2e`, `%20`, `%26`.
+
+**Static directories:** `static`, `assets`, `resources`, `media`, `content`,
+`public`, `cdn`. **Static filenames:** `robots.txt`, `index.html`, `sw.js`,
+`favicon.ico`, `crossdomain.xml`, `sitemap.xml`.
+
+### Detection model (vs. the original Burp extension)
+
+- Two-tier, configurable **extension list** (same idea as the original).
+- Stronger confirmation logic: a finding requires the unauthenticated fetch to
+  match the primed authenticated content **and** differ from a normal
+  unauthenticated response (prime ≈ fetch ≈ auth, fetch ≉ unauth) — cuts false
+  positives the original would raise.
 - Faithful similarity model: Jaro-Winkler ≥ 0.8 **OR** Levenshtein ≤ 200, with
   tunable thresholds and input caps for performance.
+- Cache-header corroboration (`X-Cache`, `CF-Cache-Status`, `Age`, …).
 
 All probes are forced to **GET** and a configurable inter-request delay keeps the
-scan well-behaved.
+scan well-behaved. Each technique can be disabled in Settings to limit request
+volume.
 
 ## Settings
 
-The **Settings** tab lets you tune the extension lists, active delimiters,
-similarity thresholds, max compared body length, request delay, the auth headers
-stripped for the unauthenticated request, and whether probes are saved to the
-project. Settings persist via the plugin storage.
+The **Settings** tab lets you toggle techniques, tune the extension lists, active
+delimiters, static directories/filenames, similarity thresholds, max compared body
+length, request delay, the auth headers stripped for the unauthenticated request,
+and whether probes are saved to the project. Settings persist via the plugin
+storage.
 
 ## Development
 
