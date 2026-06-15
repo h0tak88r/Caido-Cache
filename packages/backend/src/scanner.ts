@@ -15,7 +15,7 @@ import {
   type VariantFinding,
 } from "./types";
 
-export const Events = {
+const Events = {
   started: "wcd:scan-started",
   progress: "wcd:scan-progress",
   finished: "wcd:scan-finished",

@@ -2,6 +2,12 @@ name: 🚀 Release
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
 
 env:
   NODE_VERSION: 20
@@ -11,17 +17,8 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
-      - name: Verify main branch
-        run: |
-          if [[ "${{ github.ref_name }}" != "main" ]]; then
-            echo "Release can only be done on the main branch."
-            exit 1
-          fi
-
       - name: Checkout project
         uses: actions/checkout@v4
 
@@ -39,29 +36,36 @@ jobs:
       - name: Build package
         run: pnpm build
 
-      - name: Sign package
+      - name: Sign package (optional)
         working-directory: dist
         run: |
           if [[ -z "${{ secrets.PRIVATE_KEY }}" ]]; then
-            echo "Set an ed25519 key as PRIVATE_KEY in GitHub Action secret to sign."
+            echo "No PRIVATE_KEY secret set — skipping signature."
           else
             echo "${{ secrets.PRIVATE_KEY }}" > private_key.pem
             openssl pkeyutl -sign -inkey private_key.pem -out plugin_package.zip.sig -rawin -in plugin_package.zip
             rm private_key.pem
           fi
 
-      - name: Check version
+      - name: Resolve release tag
         id: meta
-        working-directory: dist
         run: |
-          VERSION=$(unzip -p plugin_package.zip manifest.json | jq -r .version)
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            TAG="${{ github.ref_name }}"
+          else
+            VERSION=$(unzip -p dist/plugin_package.zip manifest.json | jq -r .version)
+            TAG="v${VERSION}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Releasing as ${TAG}"
 
-      - name: Create release
-        uses: caido/action-release@v1
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
         with:
-          tag: ${{ steps.meta.outputs.version }}
-          commit: ${{ github.sha }}
-          body: 'Release ${{ steps.meta.outputs.version }}'
-          artifacts: 'dist/plugin_package.zip,dist/plugin_package.zip.sig'
-          immutableCreate: true
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.tag }}
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          files: |
+            dist/plugin_package.zip
+            dist/plugin_package.zip.sig

@@ -62,7 +62,7 @@ export function jaroWinkler(a: string, b: string): number {
 // Uses a diagonal band of width `max` so the cost is O(n * max) rather than
 // O(n * m). Distances larger than `max` are never needed, so the band is exact
 // for every distance we care about.
-export function levenshteinWithin(a: string, b: string, max: number): boolean {
+function levenshteinWithin(a: string, b: string, max: number): boolean {
   const n = a.length;
   const m = b.length;
   if (Math.abs(n - m) > max) return false;
