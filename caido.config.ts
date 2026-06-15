@@ -14,7 +14,7 @@ export default defineConfig({
   name: "Web Cache Deception Scanner",
   description:
     "Tests requests for Web Cache Deception by confirming that authenticated content is cached and served to unauthenticated users.",
-  version: "1.0.0",
+  version: "1.0.1",
   author: {
     name: "h0tak88r",
     email: "h0tak88r@gmail.com",

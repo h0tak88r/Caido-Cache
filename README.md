@@ -8,6 +8,9 @@ This is an independent reimplementation and modernization of the PortSwigger Bur
 extension [`web-cache-deception-scanner`](https://github.com/PortSwigger/web-cache-deception-scanner),
 ported to Caido's frontend + backend plugin SDK.
 
+> Verified running in Caido v0.57 — loads, scans real targets, and renders the
+> results and settings UI.
+
 ## What it does
 
 Right-click a request → **Web Cache Deception Test** (or run it from the command
